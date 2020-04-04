@@ -24,6 +24,11 @@ Shard   -> Room -> Spawn
 	* Secondary duty: build new items
 
 
+* Weighted strategy
+	* Need to produce harvesters during peaceful times `(number of harvesters) / (number of resource spots)`
+	* Need to produce builders `(number of builders) / (number of buildings to build/maintain)`
+
+
 
 ## Other ideas
 
