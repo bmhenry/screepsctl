@@ -1,14 +1,15 @@
 [package]
-name = "screeps-starter-rust"
-version = "0.0.0"
-authors = []
+name = "screepsctl"
+version = "0.1.0"
+authors = ["bmhenry"]
 edition = "2018"
 
 [dependencies]
-stdweb = "0.4"
-log = "0.4"
 fern = "0.5"
+log = "0.4"
 screeps-game-api = "0.7"
+# serde = { version = "*", features = ["derive"] }
+stdweb = "0.4"
 
 [profile.release]
 panic = "abort"

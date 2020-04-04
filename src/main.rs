@@ -1,13 +1,19 @@
 use std::collections::HashSet;
 
 use log::*;
-use screeps::{find, prelude::*, Part, ResourceType, ReturnCode, RoomObjectProperties};
+
 use stdweb::js;
 
-mod logging;
+pub mod logging;
+use screepsctl as ctl;
 
 fn main() {
-    logging::setup_logging(logging::Info);
+    // initialize logger
+    let _ = logging::setup_logging(logging::Info);
+    logging::store_log_level();
+
+    // initialize metrics
+    ctl::metrics::init_metrics();
 
     js! {
         var game_loop = @{game_loop};
@@ -32,73 +38,25 @@ fn main() {
 }
 
 fn game_loop() {
-    debug!("loop starting! CPU: {}", screeps::game::cpu::get_used());
+    // check log level
+    logging::watch_log_level();
 
-    debug!("running spawns");
-    for spawn in screeps::game::spawns::values() {
-        debug!("running spawn {}", spawn.name());
-        let body = [Part::Move, Part::Move, Part::Carry, Part::Work];
+    trace!("loop starting! CPU: {}", screeps::game::cpu::get_used());
 
-        if spawn.energy() >= body.iter().map(|p| p.cost()).sum() {
-            // create a unique name, spawn.
-            let name_base = screeps::game::time();
-            let mut additional = 0;
-            let res = loop {
-                let name = format!("{}-{}", name_base, additional);
-                let res = spawn.spawn_creep(&body, &name);
+    // step metrics to next tick iteration
+    ctl::metrics::tick_metrics();
 
-                if res == ReturnCode::NameExists {
-                    additional += 1;
-                } else {
-                    break res;
-                }
-            };
 
-            if res != ReturnCode::Ok {
-                warn!("couldn't spawn: {:?}", res);
-            }
-        }
+    trace!("running spawns");
+    for room in screeps::game::rooms::values() {
+        let ctl = ctl::roomctl::RoomCtl::new(&room, ctl::roomctl::SpawnStrategy::CtrlrUpgrade);
+        ctl.manage_spawns();
     }
 
-    debug!("running creeps");
+    trace!("running creeps");
     for creep in screeps::game::creeps::values() {
-        let name = creep.name();
-        debug!("running creep {}", name);
-        if creep.spawning() {
-            continue;
-        }
-
-        if creep.memory().bool("harvesting") {
-            if creep.store_free_capacity(Some(ResourceType::Energy)) == 0 {
-                creep.memory().set("harvesting", false);
-            }
-        } else {
-            if creep.store_used_capacity(None) == 0 {
-                creep.memory().set("harvesting", true);
-            }
-        }
-
-        if creep.memory().bool("harvesting") {
-            let source = &creep.room().find(find::SOURCES)[0];
-            if creep.pos().is_near_to(source) {
-                let r = creep.harvest(source);
-                if r != ReturnCode::Ok {
-                    warn!("couldn't harvest: {:?}", r);
-                }
-            } else {
-                creep.move_to(source);
-            }
-        } else {
-            if let Some(c) = creep.room().controller() {
-                let r = creep.upgrade_controller(&c);
-                if r == ReturnCode::NotInRange {
-                    creep.move_to(&c);
-                } else if r != ReturnCode::Ok {
-                    warn!("couldn't upgrade: {:?}", r);
-                }
-            } else {
-                warn!("creep room has no controller!");
-            }
+        if !creep.memory().bool("ignore") {
+            ctl::harvester::run(creep);
         }
     }
 
@@ -109,7 +67,12 @@ fn game_loop() {
         cleanup_memory().expect("expected Memory.creeps format to be a regular memory object");
     }
 
-    info!("done! cpu: {}", screeps::game::cpu::get_used())
+    ctl::metrics::log();
+    trace!("done! cpu: {}", screeps::game::cpu::get_used());
+
+
+    // send out all logs from the tick
+    logging::print_logs();
 }
 
 fn cleanup_memory() -> Result<(), Box<dyn std::error::Error>> {
