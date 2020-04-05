@@ -3,21 +3,59 @@
 //!
 
 use log::*;
-use std::str::FromStr;
 
 use screeps::prelude::*;
 use screeps::{find};
-use screeps::{Creep, ObjectId, ResourceType, ReturnCode, Source};
+use screeps::{Creep, HasStore, ResourceType, ReturnCode, Source, SpawnOptions, StructureSpawn};
+use screeps::memory;
 
 use crate::util;
 use crate::metrics;
 use crate::source;
+use super::types::{BasicHarvester, CreepInfo};
+
+
+
+/// tries to spawn a basic harvester
+pub fn spawn_basic_harvester(spawn: &StructureSpawn) -> Result<(), String> {
+    if spawn.energy() >= BasicHarvester::cost() {
+        // create a unique name, spawn.
+        let name_base = screeps::game::time();
+        let mut additional = 0;
+
+        // set the role of the creep on spawn
+        let mem = memory::MemoryReference::new();
+        mem.set("role", BasicHarvester::role());
+        let opts = SpawnOptions::new().memory(mem);
+
+        // loop until we get a valid name
+        let res = loop {
+            let name = format!("{}-{}", name_base, additional);
+            let res = spawn.spawn_creep_with_options(&BasicHarvester::parts(), &name, &opts);
+
+            if res == ReturnCode::NameExists {
+                additional += 1;
+            } else {
+                metrics::inc_harvesters(1);
+                break res;
+            }
+        };
+
+        if res != ReturnCode::Ok {
+            warn!("couldn't spawn: {:?}", res);
+        }
+
+        Ok(())
+    } else {
+        Err("Failed to ".to_string())
+    }
+}
 
 
 /// runs a harvester
-pub fn run(creep: Creep) {
+pub fn run_basic_harvester(creep: Creep) {
     let name = creep.name();
-    debug!("running creep {}", name);
+    trace!("running basic harvester {}", name);
 
     // don't tell the creep what to do if it's still spawning
     if creep.spawning() {
@@ -40,20 +78,13 @@ pub fn run(creep: Creep) {
             sources.sort_by_key(|s| source::free_source_spots(s));
             let id = sources.last().unwrap().id();
             creep.memory().set("destId", id.to_string());
-            creep.say(format!("Harvesting energy").as_str(), false);
+            creep.say(format!("⛏️ Harvest").as_str(), false);
         }
     }
 
     // if the creep is currently harvesting, go to the selected source and harvest
     if creep.memory().bool("harvesting") {
-        if let Some(source) = creep.memory().string("destId")
-            .ok()
-            .flatten()
-            .map(|raw_id| ObjectId::<Source>::from_str(raw_id.as_str()).ok())
-            .flatten()
-            .map(|id| id.resolve())
-            .flatten()
-        {
+        if let Some(source) = util::obj_from_mem_id::<Source>(creep.memory(), "destId") {
             if creep.pos().is_near_to(&source) {
                 let r = creep.harvest(&source);
                 if r != ReturnCode::Ok {
@@ -74,14 +105,13 @@ pub fn run(creep: Creep) {
             // give the creep directions
             // store energy in the spawn 25% of the time
             // TODO: adjust this number based on whether or not we already have enough harvesters?
-            if (util::random() % 3) == 0 {
-                let spawn = &creep.room().find(find::MY_SPAWNS)[0];
-
+            let spawn = &creep.room().find(find::MY_SPAWNS)[0];
+            if spawn.store_of(ResourceType::Energy) < (spawn.store_capacity(Some(ResourceType::Energy))/2) {
                 if spawn.store_free_capacity(Some(ResourceType::Energy)) > 0 {
                     // FIXME: move to a random or nearest spawn
                     creep.move_to(spawn);
                     creep.memory().set("moveToSpawn", true);
-                    creep.say("Transferring to spawn", false);
+                    creep.say("🏭 Spawn", false);
                 } else {
                     warn!("Can't set creep to transfer to spawn, spawn has no free capacity");
                 }
@@ -92,7 +122,7 @@ pub fn run(creep: Creep) {
                 if let Some(c) = creep.room().controller() {
                     creep.move_to(&c);
                     creep.memory().set("moveToController", true);
-                    creep.say("Upgrading controller", false);
+                    creep.say("🚧 Upgrade", false);
                 } else {
                     warn!("creep room has no controller!");
                 }
@@ -110,7 +140,7 @@ pub fn run(creep: Creep) {
                 // if the spawn is full, just upgrade the controller instead
                 creep.memory().set("moveToSpawn", false);
                 creep.memory().set("moveToController", true);
-                creep.say("Changing to upgrade controller", false);
+                creep.say("🔀 Full", false);
             } else if r != ReturnCode::Ok {
                 warn!("Creep {} energy transfer to spawn {} failed", creep.name(), spawn.name());
             } else {

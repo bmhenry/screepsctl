@@ -4,8 +4,12 @@ use log::*;
 
 use stdweb::js;
 
-pub mod logging;
 use screepsctl as ctl;
+use ctl::types::*;
+
+pub mod logging;
+
+
 
 fn main() {
     // initialize logger
@@ -46,19 +50,40 @@ fn game_loop() {
     // step metrics to next tick iteration
     ctl::metrics::tick_metrics();
 
-
-    trace!("running spawns");
-    for room in screeps::game::rooms::values() {
-        let ctl = ctl::roomctl::RoomCtl::new(&room, ctl::roomctl::SpawnStrategy::CtrlrUpgrade);
-        ctl.manage_spawns();
-    }
-
+    // run creeps first
+    // determine their roles, handle tasks
     trace!("running creeps");
+
+    let mut harvesters = 0;
+    let mut builders = 0;
     for creep in screeps::game::creeps::values() {
-        if !creep.memory().bool("ignore") {
-            ctl::harvester::run(creep);
+        if !creep.memory().bool("ignore") || creep.ticks_to_live() == 0 {
+            if let Ok(Some(role)) = creep.memory().string("role") {
+                if role == BasicHarvester::role() {
+                    ctl::harvester::run_basic_harvester(creep);
+                    harvesters += 1;
+                } else if role == BasicBuilder::role() {
+                    ctl::builder::run_basic_builder(creep);
+                    builders += 1;
+                }
+            }
         }
     }
+
+    // run spawns next, using any info gathered from number of creps per role
+    trace!("running spawns");
+    for room in screeps::game::rooms::values() {
+        let r = ctl::roomctl::RoomCtl::new(&room);
+
+        // these need to be ranked from highest to lowest priority
+        // TODO: manage the strategy in a more cohesive way
+        if harvesters < r.energy_spots(true) {
+            r.manage_spawns(ctl::roomctl::SpawnStrategy::CtrlrUpgrade);
+        } else if builders < (r.construction_sites()/2) {
+            r.manage_spawns(ctl::roomctl::SpawnStrategy::Builders);
+        }
+    }
+
 
     let time = screeps::game::time();
 

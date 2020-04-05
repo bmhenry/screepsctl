@@ -44,6 +44,10 @@ Shard   -> Room -> Spawn
 
 * can i write to the network? so that i could get logs remotely?
 
+* require non-spawn storage containers to exist before taking energy from anything else
+	* taking energy from spawn can potentially starve the colony until all creeps die and it can restart
+
+
 ### Responding to threats
 
 Low level attacks can probably be handled by walls/ramparts and turrets

@@ -64,6 +64,11 @@ pub fn inc_harvesters(count: u32) {
     inc_count("harvester_creeps", count);
 }
 
+/// Increment the number of builder creeps spawned this tick
+pub fn inc_builders(count: u32) {
+    inc_count("builder_creeps", count);
+}
+
 /// Increment the amount of energy stored this tick
 pub fn inc_energy(count: u32) {
     inc_count("energy", count);
